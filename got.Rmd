@@ -1,0 +1,151 @@
+---
+title: "Some analysis of Game of Throne data"
+author: "Sergey Cherkasov"
+date: "24 May 2016"
+output:
+  html_document:
+    number_sections: yes
+    theme: spacelab
+    toc: yes
+---
+# Preface
+
+Series of novel named "A Song of Ice and Fire" is densely populated and has very dense web of events. That is why fans can create their own theories and reinforce them with proofs from the text. Also an author of saga G.R.R. Martin once said that he had a whole plot in his head before the first line of novel. Writing adds only details to the plot.
+
+These gives us opportunity to suppose that there is a rigid structures within the novel. Let us see, does some known data of given character allow us to know what team he plays in this cruel game.
+
+# Getting and cleaning data
+
+First of all we attach some libraries and read the data. Then we combine two data sets about character using only those who exists in both sets. This step shrinks the number of observations of final data set, but gives us more features for each observation. Then we normalize all the numbers and mark every observation with allegiances.
+
+Finally we remove word "House" from column Allegiances in order to avoid pairs like "House Baratheon" and "Baratheon".
+
+It looks like the quality of data set can be significantly improved with 7 kingdoms wiki or other sources. Unfortunately, it is very time consuming task so let us try to use what we have.
+
+```{r Getting libraries and data}
+set.seed(8310) #For reproducibility
+
+libs <- c("dplyr", "Hmisc", "corrplot", "scales", "fpc",
+          "reshape2", "ggplot2", "NbClust", "mclust")
+sapply(libs, library, character.only = T, logical.return = T, 
+       quietly = T, warn.conflicts = F)
+
+char <- read.csv("character-deaths.csv", stringsAsFactors = F)
+char.pred <- read.csv("character-predictions.csv", stringsAsFactors = F)
+
+names(char.pred)[which(names(char.pred) == "name")] <- "Name"
+
+some.of.them <- inner_join(char, char.pred, by = "Name")
+some.of.them$age[187] <- 20 #Correction of obvious outlier
+numb <- some.of.them[, which(sapply(some.of.them,class) != "character")]
+numb[is.na(numb)] <- -100
+numb <- as.data.frame(scale(numb))
+numb <- cbind("Allegiances" = some.of.them$Allegiances, numb)
+numb$Allegiances <- gsub("House ", "", numb$Allegiances)
+```
+
+# Correlation of columns
+
+Since we combine two independent sets made out of the same source, there could be correlated columns. Let us check.
+
+```{r Correlation of columns}
+M <- rcorr(as.matrix(numb[,-1]))
+corrplot(M$r, type="upper")
+```
+
+Bright circles show us that there are some correlation. Let us have a closer look on them. Table should be more convenient for this purpose. We take only pair with correlation more than 0.5.
+
+```{r Table of correlation}
+tri <- upper.tri(M$r)
+corr.values <- data.frame(row = rownames(M$r)[row(M$r)[tri]],
+                          column = rownames(M$r)[col(M$r)[tri]],
+                          cor  =(M$r)[tri])
+corr.values[which(abs(corr.values$cor) > 0.5),]
+```
+
+Well, the pairs look weird. "isAliveMother" and "isAliveFather" correlated with coefficient 1. So the orphanage in series is inevitable. Nobility and isNoble correlated with only 0.5, but this is OK, due to more complicated approach in one of the set. But why "Gender" and "male" has such a small coefficient? Let us have a closer look.
+
+```{r Gender look}
+head(some.of.them[which(some.of.them$Gender != some.of.them$male), 
+             c("Name", "male", "Gender")], 15)
+```
+
+Since "1" means "male" in both sets, column "Gender" look more correct. Let us remove "male" and all other correlated columns.
+
+```{r Removing correlated columns}
+to.remove <- c("Death.Year", "Book.of.Death", "Death.Chapter", "pred", "plod", 
+               "male", "book1", "book2", "book3", "isAliveMother", 
+               "isAliveHeir", "isAliveSpouse", "isNoble", "dateOfBirth", 
+               "numDeadRelations", "boolDeadRelations", "isPopular", "isAlive")
+numb <- numb[ , -which(names(numb) %in% to.remove)]
+```
+
+# Cluster analysis
+
+## Choosing number of clusters
+
+The importance of the choice a number of clusters can not be overestimated. In a perfect world there could be 12 clusters, one for each house. Or much better it could be 4 clusters according to teams of the game. That is Lannister side, Stark side, Against all and Neutral. Let us add "Team" column to our data set.
+
+```{r Choosing number of clusters}
+Lannister.team <- c("Lannister", "Tyrell")
+Stark.team <- c("Arryn", "Baratheon", "Stark", "Tully")
+Against.all.team <- c("Martell", "Greyjoy", "Targaryen", "Wildling")
+Neutral.team <- c("Night's Watch", "None")
+numb$Team <- ifelse(numb$Allegiances %in% Lannister.team, numb$Team <- "Lannister team",
+                    ifelse(numb$Allegiances %in% Stark.team, numb$Team <- "Stark team",
+                           ifelse(numb$Allegiances %in% Against.all.team, 
+                                  numb$Team <- "Against all", "Neutral")))
+table(numb$Team)
+```
+
+Well, it looks like that Starks have more allies than Lannister, and most of characters are Neutral.
+
+Let us try to find number of clusters with NbClust library.
+
+```{r Choosing number of clusters-2}
+res <- NbClust(numb[,-c(1,20)], distance = "euclidean", 
+               min.nc=2, max.nc=12, method = "kmeans")
+```
+
+It looks like that the best number of clusters is 2. Four is not even among nominees. OK, let us try another library, called mclust.
+
+```{r Choosing number of clusters-3}
+res <- Mclust(numb[,-c(1,20)])
+summary(res)
+```
+
+Two again! OK, let us have a look on two and four clusters.
+
+## K-mean clustering
+
+```{r K-mean}
+plot.team <- function(data){
+    dat.clust <- melt(cbind(data, clust = rownames(data)), id.vars = c('clust'))
+    ggplot(dat.clust, aes(x = variable, y = value, fill = clust)) + 
+        geom_bar(position = "fill", stat = "identity") + 
+        scale_y_continuous(labels = percent_format())
+}
+
+fit.2 <- kmeans(numb[,-c(1,20)], 2)
+dat.2 <- as.data.frame.matrix(table(fit.2$cluster, numb$Team))
+dat.2
+plot.team(dat.2)
+plotcluster(numb[,-c(1,20)], fit.2$cluster)
+
+fit.4 <- kmeans(numb[,-c(1,20)], 4)
+dat.4 <- as.data.frame.matrix(table(fit.4$cluster, numb$Team))
+dat.4
+plot.team(dat.4)
+plotcluster(numb[,-c(1,20)], fit.4$cluster)
+```
+
+As we can see, neither two nor four clusters do not correspond to teams of Game of Throne. Does that mean that plot of this does not have structure? Or does that means that literature as life itself can not be calculated?
+
+They say negative result in science as important as positive one. However we all know, that reading article with happy end is much funnier. Anyway I hope this humble paper can help someone a little with cluster analysis.
+
+# References and links
+1. [Correlation matrix : A quick start guide to analyze, format and visualize a correlation matrix using R software ](http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software)
+2. [Cluster Analysis](http://www.statmethods.net/advstats/cluster.html)
+3. [K-means Clustering](http://www.r-statistics.com/2013/08/k-means-clustering-from-r-in-action/)
+4. [RPubs publication of the article]()
+5. [GitHub repository of the article](https://github.com/PestoVerde/Game-of-Throne-analysis)
