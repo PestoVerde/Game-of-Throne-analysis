@@ -147,5 +147,5 @@ They say negative result in science as important as positive one. However we all
 1. [Correlation matrix : A quick start guide to analyze, format and visualize a correlation matrix using R software ](http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software)
 2. [Cluster Analysis](http://www.statmethods.net/advstats/cluster.html)
 3. [K-means Clustering](http://www.r-statistics.com/2013/08/k-means-clustering-from-r-in-action/)
-4. [RPubs publication of the article]()
+4. [RPubs publication of the article](http://rpubs.com/PestoVerde/184198)
 5. [GitHub repository of the article](https://github.com/PestoVerde/Game-of-Throne-analysis)
